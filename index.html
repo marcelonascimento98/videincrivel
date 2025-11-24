@@ -377,33 +377,27 @@
 
     <script>
         /* -------------------------------------------------------------
-           TYPING EFFECT DA VINHETA
-        ------------------------------------------------------------- */
+                           ANIMAÇÃO DA VINHETA (mantido)
+                        ------------------------------------------------------------- */
         (function() {
             const logo = document.querySelector('#vinheta .logo');
             if (!logo) return;
-
             const text = logo.textContent.trim();
             logo.textContent = '';
-
             const chars = [...text];
-
             chars.forEach(ch => {
                 const span = document.createElement('span');
                 span.className = 'char';
                 span.innerHTML = ch === ' ' ? '&nbsp;' : ch;
                 logo.appendChild(span);
             });
-
             const spans = Array.from(logo.querySelectorAll('.char'));
-            spans.forEach((s, idx) => {
-                setTimeout(() => s.classList.add('in'), 120 + idx * 60);
-            });
+            spans.forEach((s, i) => setTimeout(() => s.classList.add('in'), 120 + i * 60));
         })();
 
 
         /* -------------------------------------------------------------
-           PLAYLIST — pode colocar quantos quiser
+           PLAYLIST (pode adicionar mais vídeos; idealmente múltiplos de 3)
         ------------------------------------------------------------- */
         const playlist = [
             "https://cdn.pixabay.com/video/2023/09/25/182281-868067120_large.mp4",
@@ -420,7 +414,7 @@
 
 
         /* -------------------------------------------------------------
-           DIA DO ANO
+           RETORNA DIA DO ANO (1 a 365)
         ------------------------------------------------------------- */
         function dayOfYear(d = new Date()) {
             const start = new Date(d.getFullYear(), 0, 0);
@@ -429,99 +423,164 @@
 
 
         /* -------------------------------------------------------------
-           SELECIONA 3 VÍDEOS POR DIA (ordem fixa por dia)
+           SELECIONA 3 VÍDEOS POR DIA (blocos fixos)
+           Dia 1 -> vídeos 0,1,2
+           Dia 2 -> vídeos 3,4,5
+           Dia 3 -> vídeos 6,7,8
+           Dia 4 -> reinicia
         ------------------------------------------------------------- */
         function getDailyVideos() {
             const dia = dayOfYear();
-            const base = dia % playlist.length;
-
+            const totalBlocos = Math.floor(playlist.length / 3);
+            if (totalBlocos <= 0) {
+                // fallback: se menos de 3 vídeos, retorna os disponíveis (evita crash)
+                return playlist.slice(0, Math.min(3, playlist.length));
+            }
+            // bloco do dia (0..totalBlocos-1)
+            const bloco = dia % totalBlocos;
+            const start = bloco * 3;
             return [
-                playlist[base],
-                playlist[(base + 1) % playlist.length],
-                playlist[(base + 2) % playlist.length]
+                playlist[start],
+                playlist[start + 1],
+                playlist[start + 2]
             ];
         }
 
-        let dailyVideos = getDailyVideos();
-        let current = 0;
-
+        let todayVideos = getDailyVideos();
+        let currentVideoIndex = 0; // índice local durante a sessão
 
         /* -------------------------------------------------------------
-           CARREGA VÍDEO OU IMAGEM
+           Funções utilitárias de load/play
         ------------------------------------------------------------- */
         function isMp4(url) {
             return /\.mp4(\?.*)?$/i.test(url);
         }
 
         function loadVideo(url) {
-            const player = document.getElementById("v");
-            const wrap = document.querySelector(".media-wrap");
+            const player = document.getElementById('v');
+            const wrap = document.querySelector('.media-wrap');
 
-            // limpa
+            // Limpa fontes/elementos anteriores
+            try {
+                player.pause();
+            } catch (e) {}
             player.innerHTML = "";
-            const img = wrap.querySelector("img.fallback");
-            if (img) img.remove();
+            const existingImg = wrap.querySelector("img.fallback");
+            if (existingImg) existingImg.remove();
+
+            if (!url) return console.warn('Nenhuma URL para carregar');
 
             if (isMp4(url)) {
-                const s = document.createElement("source");
-                s.src = url;
-                s.type = "video/mp4";
-
+                const src = document.createElement("source");
+                src.src = url;
+                src.type = "video/mp4";
                 player.style.display = "";
-                player.appendChild(s);
+                player.appendChild(src);
+
+                // força reload do elemento <video>
                 player.load();
-                player.play().catch(() => {});
+                player.play().catch(err => console.warn("Autoplay bloqueado:", err));
+                console.info('Carregando vídeo:', url);
             } else {
                 player.style.display = "none";
-                const imgEl = document.createElement("img");
-                imgEl.className = "fallback";
-                imgEl.src = url;
-                wrap.appendChild(imgEl);
+                const img = document.createElement("img");
+                img.className = "fallback";
+                img.src = url;
+                wrap.appendChild(img);
+                console.info('Carregando imagem fallback:', url);
             }
         }
 
-
         /* -------------------------------------------------------------
-           ROTACIONA A CADA 5 MIN
+           Persistência entre reloads:
+           Guardamos em localStorage uma chave por dia para saber o último
+           índice mostrado. Assim a cada load avançamos para o próximo.
+           Chave: "lastShownIndex_<YYYY-MM-DD>"
         ------------------------------------------------------------- */
-        function startRotation() {
-            loadVideo(dailyVideos[current]);
-            setInterval(() => {
-                current = (current + 1) % 3;
-                loadVideo(dailyVideos[current]);
-            }, 5 * 60 * 1000);
+        function storageKeyForToday(d = new Date()) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `lastShownIndex_${y}-${m}-${day}`;
+        }
+
+        function getNextIndexOnLoad() {
+            const key = storageKeyForToday();
+            let last = localStorage.getItem(key);
+            if (last === null) {
+                // se ainda não há registro hoje, começamos em -1 para que o "próximo" seja 0
+                last = -1;
+            } else {
+                last = parseInt(last, 10);
+                if (isNaN(last)) last = -1;
+            }
+            // próximo índice (avança a cada reload)
+            const next = (last + 1) % Math.max(1, todayVideos.length);
+            // salva próximo como último (pois já vamos mostrar ele agora)
+            localStorage.setItem(key, String(next));
+            console.info('lastShownIndex (antes):', last, '-> next:', next, 'key:', key);
+            return next;
+        }
+
+        /* troca para o próximo dos 3 vídeos (durante sessão) */
+        function swapToNext() {
+            currentVideoIndex = (currentVideoIndex + 1) % Math.max(1, todayVideos.length);
+            loadVideo(todayVideos[currentVideoIndex]);
         }
 
 
         /* -------------------------------------------------------------
-           ON LOAD
+           INÍCIO DA PÁGINA
+           - Ao carregar: escolhe o índice com base no lastShownIndex do dia
+           - Carrega esse vídeo imediatamente
+           - (Opcional) configura setInterval para trocar a cada 5min
         ------------------------------------------------------------- */
         window.addEventListener("load", () => {
+            // atualiza lista de vídeos do dia (caso playlist mude)
+            todayVideos = getDailyVideos();
 
-            startRotation();
+            // calcula o índice inicial de exibição com persistência entre reloads
+            currentVideoIndex = getNextIndexOnLoad();
 
-            const v = document.getElementById("vinheta");
+            // carrega o vídeo inicial (baseado no índice persistido)
+            loadVideo(todayVideos[currentVideoIndex]);
+
+            // VINHETA SOME APÓS 3s
+            const v = document.getElementById('vinheta');
             setTimeout(() => {
-                v.classList.add("vinhetaOut");
-                setTimeout(() => v.remove(), 1000);
+                if (v) {
+                    v.classList.add('vinhetaOut');
+                    setTimeout(() => v.remove(), 1000);
+                }
             }, 3000);
+
+            // Troca de vídeo a cada 5 minutos (se quiser apenas trocar por reload, comente a linha abaixo)
+            const FIVE_MIN = 5 * 60 * 1000;
+            setInterval(() => {
+                swapToNext();
+                // atualiza também o localStorage para refletir a troca caso queira que
+                // reload futuros comecem a partir desse novo índice:
+                const key = storageKeyForToday();
+                localStorage.setItem(key, String(currentVideoIndex));
+            }, FIVE_MIN);
+
+            // debug: no caso do seu player que recarrega a cada 12s, a cada reload
+            // o código acima avança para o próximo vídeo do bloco do dia.
         });
 
 
         /* -------------------------------------------------------------
-           PARALLAX (igual ao seu)
+           PARALLAX (mantido)
         ------------------------------------------------------------- */
         const media = document.querySelector('.media-wrap');
-
         document.addEventListener('mousemove', (e) => {
             const w = window.innerWidth,
                 h = window.innerHeight;
             const nx = (e.clientX - w / 2) / w;
             const ny = (e.clientY - h / 2) / h;
-            media.style.transform = `translate3d(${nx * 8}px, ${ny * 6}px, 0) scale(1.01)`;
+            if (media) media.style.transform = `translate3d(${nx * 8}px, ${ny * 6}px, 0) scale(1.01)`;
         });
-
-        document.addEventListener('mouseleave', () =>
-            media.style.transform = ''
-        );
+        document.addEventListener('mouseleave', () => {
+            if (media) media.style.transform = '';
+        });
     </script>
