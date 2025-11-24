@@ -376,50 +376,35 @@
     </div>
 
     <script>
-        // typing effect: transforma o texto da .logo em spans e aplica reveal letra a letra
+        /* -------------------------------------------------------------
+           TYPING EFFECT DA VINHETA
+        ------------------------------------------------------------- */
         (function() {
             const logo = document.querySelector('#vinheta .logo');
             if (!logo) return;
 
-            // captura texto original e limpa
             const text = logo.textContent.trim();
             logo.textContent = '';
 
-            // divide em caracteres seguros (spread geralmente ok para acentos simples)
-            // para clusters complexos você poderia usar Intl.Segmenter (não necessário aqui)
             const chars = [...text];
 
-            // cria spans
-            chars.forEach((ch, i) => {
+            chars.forEach(ch => {
                 const span = document.createElement('span');
                 span.className = 'char';
-                // preservar espaços visuais (não colapsar)
-                if (ch === ' ') {
-                    span.innerHTML = '&nbsp;';
-                } else {
-                    span.textContent = ch;
-                }
+                span.innerHTML = ch === ' ' ? '&nbsp;' : ch;
                 logo.appendChild(span);
             });
 
-            // animação: revele cada span da esquerda para direita
             const spans = Array.from(logo.querySelectorAll('.char'));
-            const baseDelay = 60; // ms entre caracteres
-            const initialDelay = 120; // espera antes de começar (ms)
-
             spans.forEach((s, idx) => {
-                const delay = initialDelay + idx * baseDelay;
-                setTimeout(() => {
-                    s.classList.add('in');
-                }, delay);
+                setTimeout(() => s.classList.add('in'), 120 + idx * 60);
             });
-
-            // opcional: se quiser garantir que a vinheta só suma após a digitação terminar,
-            // podemos ajustar o tempo de remoção. Como no seu script original a vinheta some
-            // depois de 3000ms, vamos manter isso, mas você pode aumentar se quiser.
         })();
 
-        /* seu script de playlist e vinheta (mantive comportamento original de remover vinheta após 3s) */
+
+        /* -------------------------------------------------------------
+           PLAYLIST — pode colocar quantos quiser
+        ------------------------------------------------------------- */
         const playlist = [
             "https://cdn.pixabay.com/video/2023/09/25/182281-868067120_large.mp4",
             "https://cdn.pixabay.com/video/2024/05/08/211188_large.mp4",
@@ -433,59 +418,101 @@
             "https://i.imgur.com/QExEHJ9.mp4",
         ];
 
+
+        /* -------------------------------------------------------------
+           DIA DO ANO
+        ------------------------------------------------------------- */
         function dayOfYear(d = new Date()) {
             const start = new Date(d.getFullYear(), 0, 0);
-            return Math.floor((d - start) / (1000 * 60 * 60 * 24));
+            return Math.floor((d - start) / 86400000);
         }
 
-        function loadDailyItem() {
+
+        /* -------------------------------------------------------------
+           SELECIONA 3 VÍDEOS POR DIA (ordem fixa por dia)
+        ------------------------------------------------------------- */
+        function getDailyVideos() {
             const dia = dayOfYear();
-            const idx = playlist.length ? (dia % playlist.length) : 0;
-            const fonte = playlist[idx];
+            const base = dia % playlist.length;
 
-            const player = document.getElementById('v');
-            // limpa fontes anteriores
-            player.innerHTML = '';
+            return [
+                playlist[base],
+                playlist[(base + 1) % playlist.length],
+                playlist[(base + 2) % playlist.length]
+            ];
+        }
 
-            const existingImg = document.querySelector('.media-wrap img.fallback');
-            if (existingImg) existingImg.remove();
+        let dailyVideos = getDailyVideos();
+        let current = 0;
 
-            function isMp4(url) {
-                return /\.mp4(\?.*)?$/i.test(url);
-            }
 
-            if (isMp4(fonte)) {
-                const src = document.createElement('source');
-                src.src = fonte;
-                src.type = "video/mp4";
-                player.appendChild(src);
+        /* -------------------------------------------------------------
+           CARREGA VÍDEO OU IMAGEM
+        ------------------------------------------------------------- */
+        function isMp4(url) {
+            return /\.mp4(\?.*)?$/i.test(url);
+        }
 
-                // garante que o vídeo esteja visível
-                player.style.display = '';
-                player.play().catch(err => console.warn("Falha no autoplay:", err));
+        function loadVideo(url) {
+            const player = document.getElementById("v");
+            const wrap = document.querySelector(".media-wrap");
+
+            // limpa
+            player.innerHTML = "";
+            const img = wrap.querySelector("img.fallback");
+            if (img) img.remove();
+
+            if (isMp4(url)) {
+                const s = document.createElement("source");
+                s.src = url;
+                s.type = "video/mp4";
+
+                player.style.display = "";
+                player.appendChild(s);
+                player.load();
+                player.play().catch(() => {});
             } else {
                 player.style.display = "none";
-                const img = document.createElement("img");
-                img.className = "fallback";
-                img.src = fonte;
-                document.querySelector('.media-wrap').appendChild(img);
+                const imgEl = document.createElement("img");
+                imgEl.className = "fallback";
+                imgEl.src = url;
+                wrap.appendChild(imgEl);
             }
         }
 
-        // CARREGA O VÍDEO NORMALMENTE ao carregar a página
-        window.addEventListener("load", () => {
-            loadDailyItem();
 
-            // VINHETA: usa comportamento de saída (remove depois de 3s + 1s)
-            const v = document.getElementById('vinheta');
+        /* -------------------------------------------------------------
+           ROTACIONA A CADA 5 MIN
+        ------------------------------------------------------------- */
+        function startRotation() {
+            loadVideo(dailyVideos[current]);
+            setInterval(() => {
+                current = (current + 1) % 3;
+                loadVideo(dailyVideos[current]);
+            }, 5 * 60 * 1000);
+        }
+
+
+        /* -------------------------------------------------------------
+           ON LOAD
+        ------------------------------------------------------------- */
+        window.addEventListener("load", () => {
+
+            startRotation();
+
+            const v = document.getElementById("vinheta");
             setTimeout(() => {
-                v.classList.add('vinhetaOut');
-                setTimeout(() => v.remove(), 1000); // remove da tela após animação
+                v.classList.add("vinhetaOut");
+                setTimeout(() => v.remove(), 1000);
             }, 3000);
         });
 
-        // Parallax sutil ao mover o mouse (mantido)
+
+        /* -------------------------------------------------------------
+           PARALLAX (igual ao seu)
+        ------------------------------------------------------------- */
         const media = document.querySelector('.media-wrap');
+
         document.addEventListener('mousemove', (e) => {
             const w = window.innerWidth,
                 h = window.innerHeight;
@@ -493,8 +520,8 @@
             const ny = (e.clientY - h / 2) / h;
             media.style.transform = `translate3d(${nx * 8}px, ${ny * 6}px, 0) scale(1.01)`;
         });
-        document.addEventListener('mouseleave', () => media.style.transform = '');
-    </script>
-</body>
 
-</html>
+        document.addEventListener('mouseleave', () =>
+            media.style.transform = ''
+        );
+    </script>
